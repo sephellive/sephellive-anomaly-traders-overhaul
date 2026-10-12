@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set release metadata
+        id: metadata
+        shell: bash
+        run: |
+          version="v0.0.${GITHUB_RUN_NUMBER}"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          archive_name="${repository_name}-${version}.zip"
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "repository_name=${repository_name}" >> "${GITHUB_OUTPUT}"
+          echo "archive_name=${archive_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate addon source
+        shell: bash
+        run: |
+          if [[ ! -d gamedata ]]; then
+            echo "::error::The repository must contain a gamedata directory."
+            exit 1
+          fi
+
+      - name: Build addon ZIP
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+        shell: bash
+        run: |
+          mkdir -p dist/package/gamedata
+          cp -a gamedata/. dist/package/gamedata/
+          find dist/package/gamedata -type f -name '.gitkeep' -delete
+
+          (
+            cd dist/package
+            zip -r "../../${ARCHIVE_NAME}" gamedata
+          )
+
+      - name: Verify ZIP layout
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+        shell: bash
+        run: |
+          zipinfo -1 "${ARCHIVE_NAME}" > zip-entries.txt
+          grep -q '^gamedata/$' zip-entries.txt
+
+          if grep -Ev '^gamedata(/|$)' zip-entries.txt; then
+            echo "::error::The ZIP contains entries outside the gamedata root."
+            exit 1
+          fi
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+        shell: bash
+        run: |
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            gh release upload "${VERSION}" "${ARCHIVE_NAME}" --clobber
+          elif git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            gh release create "${VERSION}" "${ARCHIVE_NAME}" \
+              --verify-tag \
+              --title "${VERSION}" \
+              --generate-notes
+          else
+            gh release create "${VERSION}" "${ARCHIVE_NAME}" \
+              --target "${GITHUB_SHA}" \
+              --title "${VERSION}" \
+              --generate-notes
+          fi

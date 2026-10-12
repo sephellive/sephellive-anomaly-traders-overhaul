@@ -1,0 +1,32 @@
+# Build and release output
+/build/
+/dist/
+/release/
+*.zip
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+/tmp/
+/temp/
+
+# Local developer settings
+.env
+.env.*
+!.env.example
+*.local
+
+# IDE and OS metadata
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+Desktop.ini
