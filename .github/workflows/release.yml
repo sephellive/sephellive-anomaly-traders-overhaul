@@ -42,6 +42,10 @@ jobs:
             exit 1
           fi
 
+      - name: Run DLTX regression tests
+        shell: bash
+        run: python3 -m unittest discover -s tests -v
+
       - name: Build addon ZIP
         env:
           ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}

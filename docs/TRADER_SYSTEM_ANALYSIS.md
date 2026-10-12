@@ -1,29 +1,35 @@
-# Trader System Analysis
+# Trader System Analysis — Hotfix V1
 
-## Scope and sources
+## Scope and extraction
 
-The target is Anomaly 1.5.3 trader sale inventories. The audit unpacked the installed `Anomaly/db/configs/configs.db0` to a temporary audit directory and inspected the bundled `configs/items/trade/trade_*.ltx` files. The MO2 `mods` directory contains additional trade overlays, including BHSRO supply sections and a melee trade rework. The generated overlays were based on those installed config roots at generation time.
+V1 targets **vanilla S.T.A.L.K.E.R. Anomaly 1.5.3 weapon and outfit definitions**. Weapon packs and additional outfit packs are out of scope; installed MO2 trade overlays were still inspected for conflicts and extra trade targets.
 
-## Relevant config model
+The original `Anomaly/db/configs/configs.db0` and `scripts.db0` archives were unpacked with the installed `Anomaly/tools/converter.exe`, following the command pattern in `Anomaly/tools/db_unpacker.bat`. Output went to `D:\AnomalyHope\_sto_vanilla_audit`, outside the game's `gamedata`. The archives were read only. The audit inspected 37 LTX files under `configs/items/trade/`, 247 under `configs/items/weapons/`, and 52 under `configs/items/outfits/`; the full path list is in [VANILLA_AUDIT_FILES.txt](VANILLA_AUDIT_FILES.txt). Three relevant runtime scripts were also inspected: `scripts/trade_manager.script`, `scripts/xr_logic.script`, and `scripts/ui_inventory.script`.
 
-Trader goods are declared in supply sections (for example `[supplies_1]`, `[supplies_3]`, and `[supplies_generic]`) in the trader trade LTX files. Each item is a key in a supply section; a line such as `!akvatab = 1, 0.75` removes that sale row. Other trade settings and buy lists are separate keys/sections and are left untouched. Multiple supply levels therefore need individual entry removals.
+## Trade config structure and runtime selection
 
-The installed inventory includes named traders and generic/faction supply templates (35 vanilla trade files found in the unpacked database) plus installed-mod trade LTX files. This static scope does not assert runtime-generated/future mod configs are covered.
+All standard vanilla `trade_*.ltx` files in the extracted trade directory were examined, along with the trade presets and buy/sell support config. Traders commonly include `presets\\trade_discounts.ltx` and `presets\\trade_presets.ltx`. Supply sections include numbered tiers and `supplies_generic`; tiers can inherit the preceding tier or `common_stock`. The audit followed supply-section inheritance and inspected the referenced definitions. The shared `common_stock` section was empty in the unpacked vanilla preset. Other sections such as `[weapons]` and `[outfits_all]` are trade/buy-side groups, not trader supply rows, and are not modified.
 
-## DLTX support and operation
+Runtime trade code selects a trader config and calls `npc:buy_supplies(config, section)`; the scripts inspected do not implement a category-based dynamic filter for prohibited gear. Therefore the patches cover the explicit prohibited entries in each discovered supply section and its supply inheritance chain. Configs introduced later by other mods need to be scanned and patches regenerated.
 
-Anomaly's DLTX-capable modded executable supports delete-line operations using `!<key> =` in an overlay section. The installed BHSRO config uses this same syntax (`!akvatab = ...`) in a trade LTX overlay; the configured engine executable must still be DLTX-capable. A distinct `!![section]` operation deletes an entire section, and is intentionally not used here. The addon deletes individual supply item rows only.
+## Active MO2 profile and conflict review
 
-Patch filenames use `mod_<target-basename>_sto_v1.ltx` and reside at the target LTX's relative config path. They contain only supply sections and removal directives. Source files are never copied or replaced by the addon.
+The active profile was `ModOrganizer/profiles/Anomaly Hope`, with active mods read from its `modlist.txt` and config roots under `ModOrganizer/mods`. Existing trade overlays were compared with their matching base configs and generated targets. One active BHSRO overlay for `trade_stalker_cashier` had no corresponding base trader config in the unpacked game or installed mod roots; it only lists medicine in its supply tiers and adds no prohibited gear, so no orphan target patch was invented. The generator reports unmatched overlays and fails if one contains a prohibited sale row. The validation run covered 36 effective trade config paths and detected no conflicting forbidden gear from this orphan overlay.
 
-## Classification and limits
+## DLTX operation
 
-The generator follows item section inheritance and the engine `class` field. It treats weapon classes as saleable weapons while excluding `WP_SCOPE`, `WP_SILEN`, and `WP_BINOC`; outfits and helmets use the `EQU_STLK`, `E_STLK`, and `E_HLMET` classes. Helmet and `_outfit` section names are also handled when a definition is missing. It deliberately does not treat every `wpn_*` key as a finished weapon: ammunition, magazines, scopes, suppressors, parts, and repair supplies must remain. Gear-like unresolved entries are listed by the validator for review, because DLTX has no category-aware wildcard deletion or future-mod runtime filter.
+To modify an existing supply section, generated patches use an override header such as `![supplies_1]`, followed by item-key deletion lines such as `!wpn_ak74 =`. A plain `[supplies_1]` creates an unmarked duplicate and caused the reported `CInifile::StashCurrentSection` startup error. Patches remove individual sale rows only; they never delete the entire supply section with `!![section]` and never copy/replace vanilla trade files. Trader buy configuration and all game-wide item definitions remain untouched.
 
-For the analyzed profile, generation produced 2,116 unique DLTX sale-row deletions in 28 overlays. Validation scanned 52 vanilla/active-mod trade config paths and checked 2,145 prohibited sale-row occurrences across supply tiers; it found zero missing deletes and zero unresolved gear-like keys after classification. The validation also rejects patches that delete non-target or unclassified item types.
+## Classification, preservation, and results
 
-New/changed trade config roots must be scanned again after adding mods. The generator should be run against the Anomaly unpacked config root and each active mod's `gamedata/configs` root in MO2 priority order. Review unresolved entries, regenerate overlays, and run the validator before considering the new mod set covered.
+Definitions were classified from the vanilla weapons and outfits configs, including section inheritance and `class` metadata. Weapon sale classes are removed while weapon accessories (scopes, suppressors, binoculars, magazines), ammunition, parts, and repair items are retained. Outfit, armor, and helmet classes/definitions are removed from supplies. The validator checks the generated row deletions against scanned supply sections, validates target paths and section names, rejects duplicate/plain supply headers and malformed operations, and confirms protected categories are not accidentally deleted.
 
-## Preserved behavior
+Regeneration produced 28 DLTX overlays with 2,116 unique delete rows. Validation checked 2,145 prohibited sale-row occurrences across 36 trade config paths and reported zero errors. Seven regression tests cover override headers, key-delete syntax, invalid duplicates, and target/protected-item behavior. These are **config-level results only**; they do not demonstrate that the game engine loads the patches or prove the acceptance criterion in-game.
 
-Only NPC sale supply rows are targeted. The addon does not change trader buy configuration, prices, item definitions, NPC equipment, loot, restock behavior, or any Lua scripts. It cannot perform the requested in-game smoke test in this workspace, so the manual checks are listed in the README.
+## Remaining runtime verification
+
+No automated game startup harness was available. The new-game startup and trader stock criterion still require manual verification with the final MO2 profile: start a new game, check traders across factions and supply levels, confirm preserved categories, and repeat after restock. Do not treat the textual validator as a successful engine smoke test.
+
+## Re-audit after profile changes
+
+DLTX cannot automatically discover future item definitions or trader configs. When adding/updating trade, weapon, or outfit mods, unpack current game configs, inspect active MO2 trade overlays, regenerate patches, run `tools/validate_traders.py`, and review unmatched overlays before installing the changed profile. V1 does not claim universal weapon-pack compatibility.
